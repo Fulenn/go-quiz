@@ -1,3 +1,3 @@
 # go-quiz
 
-10 Questions quiz
+100 Questions quiz
