@@ -6,15 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
+	"strconv"
 	"time"
-
-	"github.com/fatih/color"
 )
 
 type Question struct {
 	QuestionText string
 	Answer       string
+	Choices      []string
 }
 
 func main() {
@@ -30,89 +29,64 @@ func main() {
 
 	timeLimit, err := time.ParseDuration(timeLimitStr + "s")
 	if err != nil {
-		fmt.Println("Invalid time format. Please enter a valid duration (e.g., '30' for 30 seconds).")
+		fmt.Println("Invalid time duration. Exiting.")
 		return
 	}
 
-	questionList := readFile(filename)
-	quiz(questionList, timeLimit)
-}
-
-func readFile(s string) []Question {
-	file, err := os.Open(s)
+	file, err := os.Open(filename)
 	if err != nil {
-		fmt.Println("Error:", err)
-		panic(err)
+		fmt.Println("Error opening file:", err)
+		return
 	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
 
-	questionList := []Question{}
-
+	var questions []Question
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
-			break // Exit the loop at the end of the file
-		} else if err != nil {
-			fmt.Println("Error:", err)
-			panic(err)
+			break
+		}
+		if err != nil {
+			fmt.Println("Error reading file:", err)
+			return
 		}
 
-		question := Question{
+		questions = append(questions, Question{
 			QuestionText: record[0],
 			Answer:       record[1],
-		}
-
-		questionList = append(questionList, question)
+			Choices:      record[2:],
+		})
 	}
 
-	return questionList
-}
+	correctCount := 0
+	timer := time.NewTimer(timeLimit)
 
-func quiz(q []Question, timeLimit time.Duration) {
-	var counter int = 0
-	scanner := bufio.NewScanner(os.Stdin)
-
-	for _, question := range q {
-		color.Cyan(question.QuestionText)
-
-		// Create a timer with a 10-second duration
-		timer := time.NewTimer(timeLimit)
+	for i, q := range questions {
+		fmt.Printf("Question %d: %s", i+1, q.QuestionText)
+		for j, choice := range q.Choices {
+			fmt.Printf("%d. %s ", j+1, choice)
+		}
+		fmt.Println()
 
 		answerCh := make(chan string)
-
-		// Use a goroutine to capture the user's input
 		go func() {
-			if scanner.Scan() {
-				answerCh <- scanner.Text()
-			}
+			scanner.Scan()
+			answerCh <- scanner.Text()
 		}()
 
-		// Wait for either the user's input or the timer to expire
 		select {
-		case answer := <-answerCh:
-			// The user answered in time
-			if checkAnswer(answer, question.Answer) {
-				counter++
-			}
 		case <-timer.C:
-			// Time's up
-			fmt.Println("Time's up! The correct answer was:", question.Answer)
+			fmt.Println("\nTime's up!")
+			fmt.Printf("You got %d out of %d questions correct.\n", correctCount, len(questions))
+			return
+		case answer := <-answerCh:
+			selectedChoice, _ := strconv.Atoi(answer)
+			if q.Choices[selectedChoice-1] == q.Answer {
+				correctCount++
+			}
 		}
 	}
-	fmt.Printf("\nYou answered %d out of %d questions correctly.\n", counter, len(q))
-}
-
-func checkAnswer(answer string, correctAnswer string) bool {
-	// Convert both the user's answer and the correct answer to lowercase for case-insensitive matching
-	answer = strings.ToLower(answer)
-	correctAnswer = strings.ToLower(correctAnswer)
-
-	// Remove leading and trailing spaces from the user's answer
-	answer = strings.TrimSpace(answer)
-
-	// You can add more flexibility by using string similarity metrics like Levenshtein distance
-	// or allowing synonyms, but here's a basic case-insensitive check
-	return answer == correctAnswer
+	fmt.Printf("You got %d out of %d questions correct.\n", correctCount, len(questions))
 }
